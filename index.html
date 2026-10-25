@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ライオンパズル</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{
+margin:0;height:100%;overflow:hidden;touch-action:none;
+font-family:sans-serif;background:#f7c65a;
+}
+.screen{
+position:absolute;inset:0;display:flex;flex-direction:column;
+align-items:center;justify-content:center;padding:16px;text-align:center;
+}
+.hidden{display:none}
+h1{margin:8px 0}
+button{
+font-size:20px;padding:14px 24px;border:none;border-radius:14px;
+background:#ff8c00;color:#fff;font-weight:bold;min-width:180px;
+}
+#game{
+display:flex;flex-direction:column;height:100%;padding:8px;
+}
+.top{
+display:flex;justify-content:space-between;align-items:center;
+font-size:20px;font-weight:bold;padding:6px;
+}
+#board{
+flex:1;
+display:grid;
+grid-template-columns:repeat(8,1fr);
+gap:2px;
+max-width:520px;
+width:100%;
+margin:auto;
+aspect-ratio:1;
+}
+.cell{
+display:flex;align-items:center;justify-content:center;
+border-radius:8px;
+font-size:min(5vw,28px);
+user-select:none;
+border:2px solid rgba(255,255,255,.25);
+}
+.sel{outline:3px solid #fff;transform:scale(.92)}
+.red{background:#ff6b6b}
+.blue{background:#4dabf7}
+.green{background:#69db7c}
+.yellow{background:#ffd43b}
+#fireworks{
+position:fixed;inset:0;pointer-events:none;overflow:hidden;
+}
+.p{
+position:absolute;width:10px;height:10px;border-radius:50%;
+animation:boom .9s linear forwards;
+}
+@keyframes boom{
+from{opacity:1;transform:translate(0,0) scale(1)}
+to{opacity:0;transform:translate(var(--x),var(--y)) scale(.2)}
+}
+.desc{max-width:500px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<div id="start" class="screen">
+<h1>🦁 ライオンパズル</h1>
+<div class="desc">
+同じ色・同じライオンブロックを指でなぞってつなごう！<br>
+3個以上で消える！<br>
+5個以上で花火発射！<br>
+60秒で高得点を目指そう！
+</div>
+<br>
+<button id="startBtn">スタート</button>
+</div>
+
+<div id="game" class="hidden">
+<div class="top">
+<div>スコア:<span id="score">0</span></div>
+<div>残り:<span id="time">60</span>秒</div>
+</div>
+<div id="board"></div>
+</div>
+
+<div id="result" class="screen hidden">
+<h1>結果発表</h1>
+<h2>スコア: <span id="finalScore"></span></h2>
+<h2>ランク: <span id="rank"></span></h2>
+<button id="retry">もう一度遊ぶ</button>
+</div>
+
+<div id="fireworks"></div>
+
+<script>
+const SIZE=8;
+const TYPES=[
+ {c:"red",e:"🦁"},
+ {c:"blue",e:"🦁"},
+ {c:"green",e:"🦁"},
+ {c:"yellow",e:"🦁"}
+];
+
+let board=[],score=0,time=60,timer=null;
+let selecting=false,path=[];
+
+const startScr=document.getElementById("start");
+const gameScr=document.getElementById("game");
+const resultScr=document.getElementById("result");
+const boardEl=document.getElementById("board");
+
+function rnd(n){return Math.floor(Math.random()*n)}
+
+function newBlock(){return rnd(TYPES.length)}
+
+function initBoard(){
+ board=[];
+ for(let y=0;y<SIZE;y++){
+  let row=[];
+  for(let x=0;x<SIZE;x++) row.push(newBlock());
+  board.push(row);
+ }
+ draw();
+}
+
+function draw(){
+ boardEl.innerHTML="";
+ for(let y=0;y<SIZE;y++){
+  for(let x=0;x<SIZE;x++){
+   const v=board[y][x];
+   const d=document.createElement("div");
+   d.className="cell "+TYPES[v].c;
+   d.textContent=TYPES[v].e;
+   d.dataset.x=x;
+   d.dataset.y=y;
+   boardEl.appendChild(d);
+  }
+ }
+}
+
+function cellAtPoint(px,py){
+ const el=document.elementFromPoint(px,py);
+ if(!el || !el.classList.contains("cell")) return null;
+ return {
+  x:+el.dataset.x,
+  y:+el.dataset.y
+ };
+}
+
+function key(x,y){return x+"_"+y}
+
+function highlight(){
+ document.querySelectorAll(".cell").forEach(c=>c.classList.remove("sel"));
+ path.forEach(p=>{
+  const i=p.y*SIZE+p.x;
+  boardEl.children[i]?.classList.add("sel");
+ });
+}
+
+function adjacent(a,b){
+ return Math.abs(a.x-b.x)<=1 && Math.abs(a.y-b.y)<=1;
+}
+
+function startSelect(pos){
+ const type=board[pos.y][pos.x];
+ selecting=true;
+ path=[{...pos,type}];
+ highlight();
+}
+
+function moveSelect(pos){
+ if(!selecting) return;
+ const last=path[path.length-1];
+ if(!adjacent(last,pos)) return;
+ if(path.find(p=>p.x===pos.x&&p.y===pos.y)) return;
+ if(board[pos.y][pos.x]!==path[0].type) return;
+ path.push({...pos});
+ highlight();
+}
+
+function endSelect(){
+ if(!selecting) return;
+ selecting=false;
+
+ if(path.length>=3){
+  score+=path.length*10;
+  document.getElementById("score").textContent=score;
+
+  if(path.length>=5) fireworks();
+
+  path.forEach(p=>board[p.y][p.x]=-1);
+
+  for(let x=0;x<SIZE;x++){
+   let col=[];
+   for(let y=SIZE-1;y>=0;y--){
+    if(board[y][x]!==-1) col.push(board[y][x]);
+   }
+   for(let y=SIZE-1,idx=0;y>=0;y--){
+    board[y][x]=idx<col.length?col[idx++]:newBlock();
+   }
+  }
+  draw();
+ }
+ path=[];
+ highlight();
+}
+
+function fireworks(){
+ const f=document.getElementById("fireworks");
+ for(let n=0;n<40;n++){
+  const p=document.createElement("div");
+  p.className="p";
+  p.style.left=(20+rnd(60))+"%";
+  p.style.top=(20+rnd(40))+"%";
+  p.style.background=`hsl(${rnd(360)} 100% 50%)`;
+  p.style.setProperty("--x",(rnd(300)-150)+"px");
+  p.style.setProperty("--y",(rnd(300)-150)+"px");
+  f.appendChild(p);
+  setTimeout(()=>p.remove(),900);
+ }
+}
+
+function rank(s){
+ if(s>=1500) return "S";
+ if(s>=1000) return "A";
+ if(s>=700) return "B";
+ if(s>=400) return "C";
+ return "D";
+}
+
+function startGame(){
+ score=0;
+ time=60;
+ document.getElementById("score").textContent=0;
+ document.getElementById("time").textContent=60;
+
+ startScr.classList.add("hidden");
+ resultScr.classList.add("hidden");
+ gameScr.classList.remove("hidden");
+
+ initBoard();
+
+ clearInterval(timer);
+ timer=setInterval(()=>{
+  time--;
+  document.getElementById("time").textContent=time;
+  if(time<=0){
+   clearInterval(timer);
+   gameScr.classList.add("hidden");
+   resultScr.classList.remove("hidden");
+   document.getElementById("finalScore").textContent=score;
+   document.getElementById("rank").textContent=rank(score);
+  }
+ },1000);
+}
+
+boardEl.addEventListener("pointerdown",e=>{
+ const p=cellAtPoint(e.clientX,e.clientY);
+ if(p) startSelect(p);
+});
+
+boardEl.addEventListener("pointermove",e=>{
+ const p=cellAtPoint(e.clientX,e.clientY);
+ if(p) moveSelect(p);
+});
+
+window.addEventListener("pointerup",endSelect);
+window.addEventListener("pointercancel",endSelect);
+
+document.getElementById("startBtn").onclick=startGame;
+document.getElementById("retry").onclick=startGame;
+</script>
+</body>
+</html>
